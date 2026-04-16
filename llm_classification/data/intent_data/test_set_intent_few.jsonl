@@ -1,0 +1,16 @@
+{"id": "tr_012", "text": "请介绍一下会员权益", "label": "query_info", "label_name": "query_info", "l1": "qa_info", "meta": {"source": "demo"}}
+{"id": "tr_009", "text": "请总结一下这周销售数据", "label": "report_generate", "label_name": "report_generate", "l1": "analysis_report", "meta": {"source": "demo"}}
+{"id": "tr_014", "text": "哈哈你真有意思", "label": "smalltalk", "label_name": "smalltalk", "l1": "chitchat", "meta": {"source": "demo"}}
+{"id": "tr_004", "text": "新建一个工单，内容是登录报错", "label": "create_task", "label_name": "create_task", "l1": "operate_task", "meta": {"source": "demo"}}
+{"id": "tr_010", "text": "给我生成一份月度运营报告", "label": "report_generate", "label_name": "report_generate", "l1": "analysis_report", "meta": {"source": "demo"}}
+{"id": "tr_001", "text": "帮我查一下订单A123现在到哪了", "label": "status_check", "label_name": "status_check", "l1": "operate_task", "meta": {"source": "demo"}}
+{"id": "tr_016", "text": "呃这个我也说不清楚你看着办", "label": "unknown", "label_name": "unknown", "l1": "unknown", "meta": {"source": "demo"}}
+{"id": "tr_002", "text": "我的快递什么时候能送到", "label": "status_check", "label_name": "status_check", "l1": "operate_task", "meta": {"source": "demo"}}
+{"id": "tr_011", "text": "退款规则是什么", "label": "query_info", "label_name": "query_info", "l1": "qa_info", "meta": {"source": "demo"}}
+{"id": "tr_006", "text": "请帮我修改工单优先级为P1", "label": "update_task", "label_name": "update_task", "l1": "operate_task", "meta": {"source": "demo"}}
+{"id": "tr_007", "text": "取消明天的会议安排", "label": "cancel_task", "label_name": "cancel_task", "l1": "operate_task", "meta": {"source": "demo"}}
+{"id": "tr_003", "text": "给我创建一个明天下午三点和产品经理的会议", "label": "create_task", "label_name": "create_task", "l1": "operate_task", "meta": {"source": "demo"}}
+{"id": "tr_013", "text": "你好呀，今天过得怎么样", "label": "smalltalk", "label_name": "smalltalk", "l1": "chitchat", "meta": {"source": "demo"}}
+{"id": "tr_015", "text": "asdfghjkl", "label": "unknown", "label_name": "unknown", "l1": "unknown", "meta": {"source": "demo"}}
+{"id": "tr_008", "text": "把刚才创建的工单删除掉", "label": "cancel_task", "label_name": "cancel_task", "l1": "operate_task", "meta": {"source": "demo"}}
+{"id": "tr_005", "text": "把我的会议时间改到下周一上午", "label": "update_task", "label_name": "update_task", "l1": "operate_task", "meta": {"source": "demo"}}
