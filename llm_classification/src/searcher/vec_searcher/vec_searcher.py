@@ -1,4 +1,5 @@
 import os, json
+from pathlib import Path
 from loguru import logger
 from src.searcher.vec_searcher.vec_index import VecIndex
 
@@ -6,13 +7,14 @@ class VecSearcher:
     def __init__(self):
         self.invert_index = VecIndex() # 检索倒排，使用的是索引是VecIndex
         self.forward_index = [] # 检索正排，实质上只是个list，通过ID获取对应的内容
-        self.INDEX_FOLDER_PATH_TEMPLATE = "data/index/{}"
+        llm_classification_root = Path(__file__).resolve().parents[3]
+        index_root = Path(os.getenv("VEC_INDEX_ROOT", str(llm_classification_root / "data" / "index")))
+        self.INDEX_FOLDER_PATH_TEMPLATE = str(index_root / "{}")
 
     def build(self, index_dim, index_name):
         self.index_name = index_name
         self.index_folder_path = self.INDEX_FOLDER_PATH_TEMPLATE.format(index_name)
-        if not os.path.exists(self.index_folder_path) or not os.path.isdir(self.index_folder_path):
-            os.mkdir(self.index_folder_path)
+        os.makedirs(self.index_folder_path, exist_ok=True)
 
         self.invert_index = VecIndex()
         self.invert_index.build(index_dim)

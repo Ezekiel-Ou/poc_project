@@ -4,7 +4,9 @@
 # Date:        2024-09-07
 # description: 构造向量索引脚本
 
+import os
 import json,torch,copy,random
+from pathlib import Path
 from tqdm import tqdm
 from loguru import logger
 
@@ -13,13 +15,18 @@ from vec_model.vec_model import VectorizeModel
 from vec_searcher.vec_searcher import VecSearcher 
 
 if __name__ == "__main__":
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
     # 0. 必要配置
     MODE = "DEBUG"
 
     VERSION = "20240907"
-    VEC_MODEL_PATH = "C:/work/tool/huggingface/models/simcse-chinese-roberta-wwm-ext"
-    SOURCE_INDEX_DATA_PATH = "./data/toutiao_cat_data/toutiao_cat_data.txt" # 数据来源：https://github.com/aceimnorstuvwxz/toutiao-text-classfication-dataset
-    VEC_INDEX_DATA = "vec_index_toutiao_{}_{}".format(VERSION,MODE)
+    VEC_MODEL_PATH = os.getenv("VEC_MODEL_PATH", str(PROJECT_ROOT / "models" / "simcse-chinese-roberta-wwm-ext"))
+    SOURCE_INDEX_DATA_PATH = os.getenv(
+        "SOURCE_INDEX_DATA_PATH",
+        str(PROJECT_ROOT / "vec_searcher" / "data" / "toutiao_cat_data" / "toutiao_cat_data.txt")
+    ) # 数据来源：https://github.com/aceimnorstuvwxz/toutiao-text-classfication-dataset
+    VEC_INDEX_DATA = os.getenv("VEC_INDEX_DATA", "vec_index_toutiao_{}_{}".format(VERSION, MODE))
     # TESE_DATA_PATH = "./data/toutiao_cat_data/test_set_{}_{}.txt".format(VERSION,MODE)
     RANDOM_SEED = 100
 

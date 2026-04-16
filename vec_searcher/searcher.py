@@ -4,7 +4,9 @@
 # Date:        2023-12-12
 # description: 核心检索器
 
+import os
 import json,requests,copy
+from pathlib import Path
 import numpy as np
 from loguru import logger
 from vec_searcher.vec_searcher import VecSearcher
@@ -43,8 +45,9 @@ class Searcher:
         return rank_result
 
 if __name__ == "__main__":
-    VEC_MODEL_PATH = "C:/work/tool/huggingface/models/simcse-chinese-roberta-wwm-ext"
-    VEC_INDEX_DATA = "vec_index_toutiao_20240702_DEBUG"
+    PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    VEC_MODEL_PATH = os.getenv("VEC_MODEL_PATH", str(PROJECT_ROOT / "models" / "simcse-chinese-roberta-wwm-ext"))
+    VEC_INDEX_DATA = os.getenv("VEC_INDEX_DATA", "vec_index_toutiao_20240702_DEBUG")
     searcher = Searcher(VEC_MODEL_PATH, VEC_INDEX_DATA)
     q = "小产权房"
     print(searcher.search(q))

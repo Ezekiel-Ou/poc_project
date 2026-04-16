@@ -1,0 +1,15 @@
+# 核心依赖
+torch>=2.0.0
+transformers>=4.30.0
+loguru>=0.7.0
+
+# 向量库选项 (至少选一个)
+faiss-cpu>=1.7.0  # CPU 版本 FAISS
+lancedb
+# faiss-gpu>=1.7.0  # GPU 版本 FAISS
+
+lancedb>=0.1.0  # LanceDB 向量库
+
+# 文本处理
+scikit-learn>=1.3.0
+tqdm>=4.65.0

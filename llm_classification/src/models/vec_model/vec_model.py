@@ -6,8 +6,12 @@ from loguru import logger
 from transformers import BertTokenizer
 
 from src.models.vec_model.simcse_model import SimcseModel
+from src.utils.device import resolve_device
 
-import onnxruntime as ort
+try:
+    import onnxruntime as ort
+except Exception:
+    ort = None
 
 class VectorizeModel:
     def __init__(self, ptm_model_path, device = "cpu") -> None:
@@ -16,8 +20,7 @@ class VectorizeModel:
         # print(self.model)
         self.model.eval()
         
-        self.DEVICE = torch.device('cuda' if torch.cuda.is_available() else "cpu")
-        # self.DEVICE = device
+        self.DEVICE = resolve_device(device)
         logger.info(self.DEVICE)
         self.model.to(self.DEVICE)
         
@@ -46,6 +49,8 @@ class VectorizeModel:
 class VectorizeModel_v2(VectorizeModel):
     def __init__(self, ptm_model_path, onnx_path, providers=['CUDAExecutionProvider']) -> None:
         # ['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']
+        if ort is None:
+            raise ImportError("onnxruntime is required for VectorizeModel_v2")
         self.tokenizer = BertTokenizer.from_pretrained(ptm_model_path)
         self.model = ort.InferenceSession(onnx_path, providers=providers)
         

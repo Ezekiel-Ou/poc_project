@@ -2,115 +2,129 @@
 # Filename:    build_vec_index.py
 # Author:      ZENGGUANRONG
 # Date:        2023-12-12
-# description: 构造向量索引脚本
+# description: 构造向量索引脚本（通用格式）
 
-import json,torch,copy,random
-from tqdm import tqdm
+import json
+import os
+import random
+import sys
+from pathlib import Path
+
+import torch
 from loguru import logger
 from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
-from src.utils.data_processing import load_toutiao_data
+LLM_CLASSIFICATION_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(LLM_CLASSIFICATION_ROOT) not in sys.path:
+    sys.path.insert(0, str(LLM_CLASSIFICATION_ROOT))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from config.project_config import VEC_DB_TYPE, VEC_MODEL_PATH
 from src.models.vec_model.vec_model import VectorizeModel
-from src.searcher.vec_searcher.vec_searcher import VecSearcher 
+from src.searcher.vec_searcher.backend_factory import get_vec_searcher_class, normalize_vec_db_type
+from src.utils.data_processing import load_jsonl_data, load_legacy_delimited_data
+from src.utils.device import resolve_device
+
+
+def _load_source_data(source_path, data_format):
+    fmt = (data_format or "auto").lower()
+    if fmt == "auto":
+        fmt = "jsonl" if str(source_path).endswith(".jsonl") else "legacy"
+
+    if fmt == "jsonl":
+        return load_jsonl_data(source_path)
+    if fmt in {"legacy", "delimited"}:
+        return load_legacy_delimited_data(source_path)
+    raise ValueError("Unsupported DATA_FORMAT: {}".format(data_format))
+
+
+def _few_shot_by_label(data, per_label):
+    class_count = {}
+    selected = []
+    for item in data:
+        label = item.get("label")
+        if not label:
+            continue
+        if class_count.get(label, 0) >= per_label:
+            continue
+        class_count[label] = class_count.get(label, 0) + 1
+        selected.append(item)
+    return selected
+
 
 if __name__ == "__main__":
-    # 0. 必要配置
-    MODE = "DEBUG"
-    # MODE = "PRO"
-    MODE = "FEW"
+    project_root = Path(__file__).resolve().parents[2]
+    llm_classification_root = project_root / "llm_classification"
 
-    VERSION = "20240702"
-    VEC_MODEL_PATH = "C:/work/tool/huggingface/models/simcse-chinese-roberta-wwm-ext"
-    SOURCE_INDEX_DATA_PATH = "./data/toutiao_cat_data/toutiao_cat_data.txt" # 数据来源：https://github.com/aceimnorstuvwxz/toutiao-text-classfication-dataset
-    VEC_INDEX_DATA = "vec_index_toutiao_{}_{}".format(VERSION,MODE)
-    TESE_DATA_PATH = "./data/toutiao_cat_data/test_set_{}_{}.txt".format(VERSION,MODE)
-    RANDOM_SEED = 100
+    mode = os.getenv("BUILD_MODE", "FEW").upper()  # DEBUG / FEW / PRO
+    version = os.getenv("DATA_VERSION", "intent")
+    source_index_data_path = os.getenv(
+        "SOURCE_INDEX_DATA_PATH",
+        str(llm_classification_root / "data" / "intent_data" / "train.jsonl"),
+    )
+    data_format = os.getenv("DATA_FORMAT", "auto")  # auto / jsonl / legacy
+    vec_index_data = os.getenv("VEC_INDEX_DATA", "vec_index_{}_{}".format(version, mode.lower()))
+    test_data_path = os.getenv(
+        "TEST_DATA_PATH",
+        str(llm_classification_root / "data" / "intent_data" / "test_set_{}_{}.jsonl".format(version, mode.lower())),
+    )
 
-    DEVICE = torch.device('cuda' if torch.cuda.is_available() else "cpu")
-    TEST_SIZE = 0.1
-    # 类目体系
-    CLASS_INFO = [
-        ["100", '民生-故事', 'news_story'],
-        ["101", '文化-文化', 'news_culture'],
-        ["102", '娱乐-娱乐', 'news_entertainment'],
-        ["103", '体育-体育', 'news_sports'],
-        ["104", '财经-财经', 'news_finance'],
-        # ["105", '时政 新时代', 'nineteenth'],
-        ["106", '房产-房产', 'news_house'],
-        ["107", '汽车-汽车', 'news_car'],
-        ["108", '教育-教育', 'news_edu' ],
-        ["109", '科技-科技', 'news_tech'],
-        ["110", '军事-军事', 'news_military'],
-        # ["111" 宗教 无，凤凰佛教等来源],
-        ["112", '旅游-旅游', 'news_travel'],
-        ["113", '国际-国际', 'news_world'],
-        ["114", '证券-股票', 'stock'],
-        ["115", '农业-三农', 'news_agriculture'],
-        ["116", '电竞-游戏', 'news_game']
-    ]
-    ID2CN_MAPPING = {}
-    for idx in range(len(CLASS_INFO)):
-        ID2CN_MAPPING[CLASS_INFO[idx][0]] = CLASS_INFO[idx][1]
+    vec_db_type = normalize_vec_db_type(VEC_DB_TYPE)
+    logger.info("Using vector DB backend: {}".format(vec_db_type))
+    vec_searcher_class = get_vec_searcher_class(vec_db_type)
 
-    # 1. 加载数据、模型
-    # 1.1 加载模型
-    vec_model = VectorizeModel(VEC_MODEL_PATH, DEVICE)
+    random_seed = int(os.getenv("RANDOM_SEED", "100"))
+    test_size = float(os.getenv("TEST_SIZE", "0.1"))
+    few_per_label = int(os.getenv("FEW_PER_LABEL", "10"))
+
+    random.seed(random_seed)
+    torch.manual_seed(random_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(random_seed)
+
+    device = resolve_device(None)
+
+    vec_model = VectorizeModel(VEC_MODEL_PATH, device)
     index_dim = len(vec_model.predict_vec("你好啊")[0])
-    # 1.2 加载数据
-    toutiao_index_data = load_toutiao_data(SOURCE_INDEX_DATA_PATH)
-    source_index_data = copy.deepcopy(toutiao_index_data)
+
+    all_data = _load_source_data(source_index_data_path, data_format)
+    source_index_data = [x for x in all_data if x.get("text")]
     logger.info("load data done: {}".format(len(source_index_data)))
-    if MODE == "DEBUG":
+
+    if mode == "DEBUG":
         random.shuffle(source_index_data)
         source_index_data = source_index_data[:10000]
-    elif MODE == "FEW":
-        new_source_data = []
-        class_dict_cal = {}
-        test_list = []
-        tmp_idx = 0
+    elif mode == "FEW":
+        source_index_data = _few_shot_by_label(source_index_data, few_per_label)
 
-        for key in ID2CN_MAPPING:
-            class_dict_cal[key] = 0
-        for idx in range(len(source_index_data)):
-            if class_dict_cal[source_index_data[idx][1][1]] < 10:
-                class_dict_cal[source_index_data[idx][1][1]] += 1
-                new_source_data.append(source_index_data[idx])
-            if sum([class_dict_cal[i] for i in class_dict_cal]) >= len(class_dict_cal) * 10:
-                break
-        source_index_data = new_source_data
-
-    for item in source_index_data:
-        item[1].append(ID2CN_MAPPING[item[1][1]])
-    # 1.3 训练集测试集划分
-    if MODE != "FEW":
-        train_list, test_list = train_test_split(source_index_data, test_size=TEST_SIZE, random_state=66)
+    if mode != "FEW":
+        train_list, test_list = train_test_split(source_index_data, test_size=test_size, random_state=random_seed)
     else:
         train_list = source_index_data
-        test_list = toutiao_index_data[idx:idx + 1000]
-        for item in test_list:
-            item[1].append(ID2CN_MAPPING[item[1][1]])
+        random.shuffle(all_data)
+        test_list = all_data[:1000]
 
-    # 2. 创建索引并灌入数据
-    # 2.1 构造索引
-    vec_searcher = VecSearcher()
-    vec_searcher.build(index_dim, VEC_INDEX_DATA)
+    vec_searcher = vec_searcher_class()
+    vec_searcher.build(index_dim, vec_index_data)
 
-    # 2.2 推理向量
-    vectorize_result = []
-    for q in tqdm(train_list, desc="VEC MODEL RUNNING"):
-        vec = vec_model.predict_vec(q[0]).cpu().numpy()
-        tmp_result = copy.deepcopy(q)
-        tmp_result.append(vec)
-        vectorize_result.append(copy.deepcopy(tmp_result))
+    for item in tqdm(train_list, desc="INSERT INTO INDEX"):
+        vec = vec_model.predict_vec(item["text"]).cpu().numpy()
+        doc = {
+            "id": item.get("id", ""),
+            "text": item.get("text", ""),
+            "label": item.get("label"),
+            "label_name": item.get("label_name") or item.get("label"),
+            "l1": item.get("l1"),
+            "meta": item.get("meta", {}),
+        }
+        vec_searcher.insert(vec, doc)
 
-    # 2.3 开始存入
-    for idx in tqdm(range(len(vectorize_result)), desc="INSERT INTO INDEX"):
-        vec_searcher.insert(vectorize_result[idx][2], vectorize_result[idx][:2])
-
-    # 3. 保存
-    # 3.1 索引保存
     vec_searcher.save()
-    # 3.2 测试集保存
-    with open(TESE_DATA_PATH, "w", encoding="utf8") as f:
+
+    os.makedirs(Path(test_data_path).parent, exist_ok=True)
+    with open(test_data_path, "w", encoding="utf8") as f:
         for item in test_list:
-            f.write("_!_".join(item[1]) + "\n")
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")

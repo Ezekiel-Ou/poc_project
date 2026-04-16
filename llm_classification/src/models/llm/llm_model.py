@@ -5,31 +5,37 @@
 # description: 大模型调用模块，这里默认用的chatglm2
 
 # from transformers import AutoModel, AutoTokenizer
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import Tuple, List
 from loguru import logger
+from src.utils.device import resolve_device
 
-class QWen2Model:
+class QWen3Model:
     def __init__(self, model_path, config = {}, device="cuda"):
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype="auto",
-            device_map="auto"
-        )
+        self.device = resolve_device(device)
+
+        self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype="auto")
+        self.model.to(self.device)
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.model = self.model.eval()
-        self.device = device
 
         self.generate_config = self._read_config_(config)
+        if not self.generate_config.get("do_sample", False):
+            self.model.generation_config.temperature = 1.0
+            self.model.generation_config.top_p = 1.0
+            self.model.generation_config.top_k = 50
         logger.info("load LLM Model done")
     
     def _read_config_(self, config):
         tmp_config = {}
-        # tmp_config["max_length"] = config.get("max_length", 2048)
         tmp_config["num_beams"] = config.get("num_beams", 1)
-        tmp_config["do_sample"] = config.get("do_sample", False)
-        tmp_config["top_k"] = config.get("top_k", 1)
-        tmp_config["temperature"] = config.get("temperature", 0.8)
+        do_sample = config.get("do_sample", False)
+        tmp_config["do_sample"] = do_sample
+        if do_sample:
+            tmp_config["top_k"] = config.get("top_k", 50)
+            tmp_config["top_p"] = config.get("top_p", 1.0)
+            tmp_config["temperature"] = config.get("temperature", 1.0)
         return tmp_config
 
     def predict(self, query):
@@ -61,7 +67,7 @@ class QWen2Model:
         return response
 
 if __name__ == "__main__":
-    from config.toutiao_config import LLM_CONFIG,LLM_PATH
+    from config.project_config import LLM_CONFIG, LLM_PATH
     print(LLM_CONFIG)
-    llm_model = QWen2Model(LLM_PATH, config = LLM_CONFIG, device="cuda")
+    llm_model = QWen3Model(LLM_PATH, config = LLM_CONFIG, device=None)
     print(llm_model.predict("如何做番茄炒蛋"))
