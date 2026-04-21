@@ -7,7 +7,7 @@
 # from transformers import AutoModel, AutoTokenizer
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from typing import Tuple, List
+from typing import List
 from loguru import logger
 from src.utils.device import resolve_device
 
@@ -18,6 +18,10 @@ class QWen3Model:
         self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype="auto")
         self.model.to(self.device)
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        # decoder-only 模型必须左填充，否则 pad token 会出现在 prompt 中间导致生成错乱
+        self.tokenizer.padding_side = "left"
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         self.model = self.model.eval()
 
         self.generate_config = self._read_config_(config)
@@ -26,7 +30,7 @@ class QWen3Model:
             self.model.generation_config.top_p = 1.0
             self.model.generation_config.top_k = 50
         logger.info("load LLM Model done")
-    
+
     def _read_config_(self, config):
         tmp_config = {}
         tmp_config["num_beams"] = config.get("num_beams", 1)
@@ -38,33 +42,43 @@ class QWen3Model:
             tmp_config["temperature"] = config.get("temperature", 1.0)
         return tmp_config
 
-    def predict(self, query):
+    def _render_prompt(self, query: str) -> str:
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": query}
+            {"role": "user", "content": query},
         ]
-        text = self.tokenizer.apply_chat_template(
+        return self.tokenizer.apply_chat_template(
             messages,
             tokenize=False,
-            add_generation_prompt=True
+            add_generation_prompt=True,
         )
-        model_inputs = self.tokenizer([text], return_tensors="pt").to(self.device)
 
-        # Directly use generate() and tokenizer.decode() to get the output.
-        # Use `max_new_tokens` to control the maximum output length.
+    def predict_batch(self, queries: List[str]) -> List[str]:
+        if not queries:
+            return []
+
+        texts = [self._render_prompt(q) for q in queries]
+        model_inputs = self.tokenizer(
+            texts,
+            padding=True,
+            truncation=True,
+            return_tensors="pt",
+        ).to(self.device)
+
         generated_ids = self.model.generate(
             model_inputs.input_ids,
             attention_mask=model_inputs.attention_mask,
-            pad_token_id=self.tokenizer.eos_token_id,
+            pad_token_id=self.tokenizer.pad_token_id,
             max_new_tokens=512,
-            **self.generate_config
+            **self.generate_config,
         )
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
-        ]
 
-        response = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        return response
+        input_len = model_inputs.input_ids.shape[1]
+        trimmed = generated_ids[:, input_len:]
+        return self.tokenizer.batch_decode(trimmed, skip_special_tokens=True)
+
+    def predict(self, query):
+        return self.predict_batch([query])[0]
 
 if __name__ == "__main__":
     from config.project_config import LLM_CONFIG, LLM_PATH

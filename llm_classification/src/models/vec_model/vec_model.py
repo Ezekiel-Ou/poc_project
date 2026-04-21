@@ -27,14 +27,17 @@ class VectorizeModel:
         self.pdist = nn.PairwiseDistance(2)
     
     def predict_vec(self,query):
-        q_id = self.tokenizer(query, max_length = 200, truncation=True, padding="max_length", return_tensors='pt')
+        q_id = self.tokenizer(query, max_length = 200, truncation=True, padding=True, return_tensors='pt')
         with torch.no_grad():
-            q_id_input_ids = q_id["input_ids"].squeeze(1).to(self.DEVICE)
-            q_id_attention_mask = q_id["attention_mask"].squeeze(1).to(self.DEVICE)
-            q_id_token_type_ids = q_id["token_type_ids"].squeeze(1).to(self.DEVICE)
+            q_id_input_ids = q_id["input_ids"].to(self.DEVICE)
+            q_id_attention_mask = q_id["attention_mask"].to(self.DEVICE)
+            q_id_token_type_ids = q_id["token_type_ids"].to(self.DEVICE)
             q_id_pred = self.model(q_id_input_ids, q_id_attention_mask, q_id_token_type_ids)
 
         return q_id_pred
+
+    def predict_vec_batch(self, queries):
+        return self.predict_vec(queries)
 
     def predict_vec_request(self, query):
         q_id_pred = self.predict_vec(query)

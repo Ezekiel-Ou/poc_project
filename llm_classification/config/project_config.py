@@ -25,6 +25,8 @@ VEC_MODEL_PATH = _env_path("VEC_MODEL_PATH", MODELS_ROOT / "simcse-chinese-rober
 VEC_INDEX_DATA = os.getenv("VEC_INDEX_DATA", "vec_index_intent_few")
 VEC_DB_TYPE = os.getenv("VEC_DB_TYPE", "lancedb")  # "faiss" or "lancedb"
 
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "8"))
+
 LLM_PATH = _env_path("LLM_PATH", MODELS_ROOT / "qwen3-1.7b")
 LLM_CONFIG = {"max_length": 2048,
               "do_sample": False,

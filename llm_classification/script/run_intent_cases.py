@@ -14,8 +14,9 @@ if str(LLM_CLASSIFICATION_ROOT) not in sys.path:
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.classifier import VecLlmClassifier
+from src.classifier import VecLlmClassifier, _chunked
 from src.utils.data_processing import load_jsonl_data, load_legacy_delimited_data
+from config.project_config import BATCH_SIZE
 
 
 def load_eval_data(test_data_path, data_format="auto"):
@@ -32,26 +33,41 @@ def load_eval_data(test_data_path, data_format="auto"):
 
 if __name__ == "__main__":
     version = os.getenv("EVAL_VERSION", "intent_few")
-    test_data_path = os.getenv("TEST_DATA_PATH", "data/intent_data/test_set_{}.jsonl".format(version))
-    output_data_path = os.getenv("OUTPUT_DATA_PATH", "data/intent_data/test_set_{}_result.jsonl".format(version))
+    default_test_data = LLM_CLASSIFICATION_ROOT / "data" / "intent_data" / "test_set_{}.jsonl".format(version)
+    default_output = LLM_CLASSIFICATION_ROOT / "data" / "intent_data" / "test_set_{}_result.jsonl".format(version)
+    test_data_path = os.getenv("TEST_DATA_PATH", str(default_test_data))
+    output_data_path = os.getenv("OUTPUT_DATA_PATH", str(default_output))
     test_data_format = os.getenv("TEST_DATA_FORMAT", "auto")
 
     test_data = load_eval_data(test_data_path, test_data_format)
 
     vlc = VecLlmClassifier()
-    gold_list = []
-    pred_list = []
-    labels = set()
-
-    for item in tqdm(test_data, desc="RUNNING TEST"):
+    valid_items = []
+    for item in test_data:
         text = item.get("text", "")
         gold_label = item.get("label_name") or item.get("label")
         if not text or not gold_label:
             continue
-        pred = vlc.predict(text)
-        gold_list.append(gold_label)
-        pred_list.append(pred)
-        labels.add(gold_label)
+        valid_items.append((text, gold_label, item))
+
+    gold_list = []
+    pred_list = []
+    result_rows = []
+    labels = set()
+
+    for batch in tqdm(list(_chunked(valid_items, BATCH_SIZE)), desc="BATCH EVAL"):
+        texts = [x[0] for x in batch]
+        preds = vlc.predict_batch(texts)
+        for (text, gold_label, src_item), pred in zip(batch, preds):
+            gold_list.append(gold_label)
+            pred_list.append(pred)
+            labels.add(gold_label)
+            result_rows.append({
+                "text": text,
+                "label": gold_label,
+                "prediction": pred,
+                "correct": gold_label == pred,
+            })
 
     labels = list(labels)
     logger.info("\n{}".format(classification_report(gold_list, pred_list, labels=labels)))
@@ -59,10 +75,5 @@ if __name__ == "__main__":
 
     os.makedirs(os.path.dirname(output_data_path), exist_ok=True)
     with open(output_data_path, "w", encoding="utf8") as fout:
-        for idx in range(len(gold_list)):
-            fout.write(json.dumps({
-                "text": test_data[idx].get("text", ""),
-                "label": gold_list[idx],
-                "prediction": pred_list[idx],
-                "correct": gold_list[idx] == pred_list[idx],
-            }, ensure_ascii=False) + "\n")
+        for row in result_rows:
+            fout.write(json.dumps(row, ensure_ascii=False) + "\n")
