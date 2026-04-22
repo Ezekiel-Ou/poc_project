@@ -1,146 +1,209 @@
-# 意图分类数据规范（Intent Classification Spec）
+# 意图分类数据规范
 
-本文档定义意图分类任务的数据格式、标签体系和标注规则，目标是让项目可迁移到任意业务场景（客服、助手、工单、运营、办公自动化等）。
+本文档描述的是当前仓库代码实际兼容的数据格式，不写理想方案，只写当前实现真实支持的字段和行为。
 
-## 1. 任务定义
+## 1. 当前任务形态
 
-- 输入：用户原始文本（query）
-- 输出：一个最合适的意图标签（单标签分类）
-- 兜底：当文本不清晰或超出已知标签体系时，输出 `unknown`（拒识）
+当前项目是单标签意图分类：
 
-建议默认采用单标签模式（与当前召回+LLM判别流程一致），后续如有需要再扩展多标签。
+- 输入：一条用户文本
+- 输出：一个标签
+- 兜底：`拒识`
 
-## 2. 标签体系设计（推荐）
+主流程不是“纯 LLM 直接分类”，而是：
 
-为保证可扩展性，采用两层结构：
+1. 先从向量索引中召回相似锚点
+2. 再让 LLM 在候选类目中选一个标签
 
-- L1：意图大类（做什么）
-- L2：具体意图（具体要做的动作）
+## 2. 当前代码使用到的数据文件
 
-### 2.1 常见 L1 大类示例
+- 训练锚点数据：`llm_classification/data/intent_data/train.jsonl`
+- 推理输入数据：任意 `jsonl`，例如 `test_set_intent_few.jsonl`
+- 类目定义：`llm_classification/data/intent_data/class_def.tsv`
 
-- `qa_info`：信息问答（解释、介绍、知识查询）
-- `operate_task`：执行操作（创建、修改、删除、查询系统对象）
-- `analysis_report`：分析总结（统计、对比、归因、报告生成）
-- `plan_generate`：内容生成（方案、文案、邮件、脚本）
-- `workflow_assist`：流程协助（审批、提醒、跟进、状态查询）
-- `chitchat`：闲聊寒暄
-- `unknown`：拒识/不在范围
+## 3. 训练/建索引数据格式
 
-### 2.2 L2 具体意图示例（可按业务定制）
+`build_index.sh` 最终调用 `build_vec_index.py`，当前建索引时真实会读取这些字段：
 
-- `create_ticket`：创建工单
-- `query_order_status`：查询订单状态
-- `cancel_order`：取消订单
-- `book_meeting`：预约会议
-- `generate_weekly_report`：生成周报
-- `summarize_document`：总结文档
-- `faq_refund_policy`：咨询退款规则
+- `text`
+- `label`
+- `label_name`
+- `l1`
+- `meta`
+- `id`
 
-## 3. 标签命名规范
+其中真正必需的是：
 
-- 统一小写蛇形：`[a-z0-9_]+`，例如 `query_order_status`
-- 标签语义应是可执行动作或稳定目的，不要混入情绪和措辞
-- 不使用重叠标签（例如 `query_status` 与 `query_order_status` 同时存在会冲突）
-- 所有线上预测标签必须在标签字典中有定义
+- `text`
 
-## 4. 数据文件格式（必须）
+但从当前逻辑上看，建议至少同时提供：
 
-统一使用 `jsonl`，每行一个 JSON 对象。
+- `text`
+- `label`
 
-### 4.1 训练/索引样本格式
+推荐样例：
 
 ```json
-{"id":"d1","text":"帮我查一下订单123现在到哪了","label":"query_order_status","label_name":"查询订单状态","l1":"operate_task","meta":{"source":"app_chat","lang":"zh"}}
-{"id":"d2","text":"给我生成本周销售总结","label":"generate_weekly_report","label_name":"生成周报","l1":"analysis_report","meta":{"source":"web"}}
+{"id":"tr_001","text":"帮我查一下订单状态","label":"status_check","label_name":"status_check","l1":"operate_task","meta":{"source":"demo"}}
 ```
 
 字段说明：
 
-- `id`：样本唯一ID（字符串）
-- `text`：用户原始文本
-- `label`：L2标签（训练与评估主标签）
-- `label_name`：标签中文名（可读）
-- `l1`：L1大类（可选但强烈建议）
-- `meta`：扩展字段（可选）
+- `id`：样本 ID，可选
+- `text`：原始文本，必需
+- `label`：标签，强烈建议提供
+- `label_name`：标签展示名，可选；如果缺失，代码会回退到 `label`
+- `l1`：一级类目，可选
+- `meta`：扩展字段，可选
 
-### 4.2 推理输入格式
+说明：
 
-```json
-{"id":"q1","text":"把明天下午和客户的会约一下"}
-{"id":"q2","text":"退款规则是什么"}
+- 如果一条样本没有 `text`，建索引时会被跳过
+- 如果没有 `label`，样本仍可能入索引，但后续召回到它时无法提供有效候选标签，不利于分类
+
+## 4. 类目定义文件格式
+
+文件：
+
+- `llm_classification/data/intent_data/class_def.tsv`
+
+格式：
+
+```text
+label<TAB>definition
 ```
-
-### 4.3 推理输出格式
-
-```json
-{"id":"q1","text":"把明天下午和客户的会约一下","prediction":"book_meeting","prediction_name":"预约会议","confidence":0.78}
-{"id":"q2","text":"退款规则是什么","prediction":"faq_refund_policy","prediction_name":"退款规则咨询","confidence":0.73}
-```
-
-备注：`confidence` 可选。如果当前实现没有稳定置信度，可先不输出或输出 `null`。
-
-## 5. 标签定义文件（class_def）
-
-建议使用 `tsv`，格式：`label<TAB>definition`。
 
 示例：
 
 ```tsv
-query_order_status	用户希望查询订单处理进度、物流状态或当前节点
-cancel_order	用户希望撤销未完成订单
-book_meeting	用户希望安排、变更或取消会议日程
-unknown	语义不明或不在已定义业务范围内
+status_check	用户希望查询对象当前状态或处理进度。
+refund	用户希望发起退款、查询退款规则或处理退款问题。
 ```
 
-要求：
+当前用途：
 
-- 每个 `label` 必须有定义
-- 定义要“边界清晰”，写出包含范围与排除范围
+- 检索召回出候选标签后，代码会把这些标签对应的定义拼进 prompt
 
-## 6. 标注规则（关键）
+## 5. 推理输入格式
 
-- 单标签优先：一句话只标一个“主要意图”
-- 多意图句处理：按主诉求优先（若无法判定主次，标 `unknown` 并入复核池）
-- 上下文缺失：仅根据当前句无法判断时标 `unknown`
-- 不用情感/语气作为标签依据（如“急、烦、谢谢”）
-- 对同义表达保持一致标注（建立同义短语清单）
+`run.sh` 最终调用 `classifier.py --input_jsonl ...`。
 
-## 7. 质量门槛
+当前批量推理时，每行 JSON 实际只强依赖一个字段：
 
-- 标签分布：头部标签不超过总样本 35%（建议）
-- 每个标签最少样本数：`>= 50`（冷启动阶段可 `>= 20`）
-- 标注一致性：抽样双标一致率 `>= 90%`
-- 去重：`text` 完全重复样本需去重或保留一条
+- `text`
 
-## 8. 评估与切分
+最小可用样例：
 
-- 数据切分：`train/valid/test = 8/1/1`（按标签分层）
-- 核心指标：Macro-F1、每类 Recall、`unknown` 召回率
-- 上线前必须检查：
-  - 高频标签混淆矩阵
-  - `unknown` 误分到具体标签的比例
+```json
+{"text":"请介绍一下会员权益"}
+{"text":"帮我查一下订单A123现在到哪了"}
+```
 
-## 9. 与当前项目的映射建议
+说明：
 
-当前项目可直接沿用“向量召回候选 + LLM从候选里选1类”的流程，推荐改造点：
+- 如果某一行没有 `text`，这行会被跳过
+- 当前推理逻辑不会使用输入中的 `id`、`label`、`meta`
 
-- 索引入库时统一使用本规范的 `jsonl` 字段
-- 召回结果统一输出 `text/label/label_name/meta`
-- prompt 中的 `<options>` 使用 `label`，`<options_detail>` 使用 class_def 的定义
-- 当 LLM 输出不在候选集合内时，强制回退 `unknown`
+## 6. 推理输出格式
 
-## 10. 最小可用标签集（MVP）建议
+当前 `run_jsonl_inference` 的真实输出字段只有两个：
 
-如果你先做“干什么事情”的基础意图分类，可先用以下 8 类：
+- `text`
+- `prediction`
 
-- `query_info`（信息查询）
-- `create_task`（创建任务/工单/日程）
-- `update_task`（修改任务/订单/配置）
-- `cancel_task`（取消/删除）
-- `status_check`（进度/状态查询）
-- `report_generate`（总结/报表生成）
-- `smalltalk`（闲聊）
-- `unknown`（拒识）
+样例：
 
-后续根据业务数据再把 `status_check`、`create_task` 等细分到垂直标签。
+```json
+{"text":"请介绍一下会员权益","prediction":"会员权益介绍"}
+{"text":"帮我查一下订单A123现在到哪了","prediction":"status_check"}
+```
+
+当前不会输出：
+
+- `id`
+- `prediction_name`
+- `confidence`
+
+如果你在输入里传了 `id`，当前输出也不会原样带回。
+
+## 7. 当前标签返回规则
+
+在 `classifier.py` 里，返回标签的逻辑是：
+
+1. 从召回样本里提取候选标签
+2. 让 LLM 生成结果
+3. 如果生成文本中包含某个候选标签，就返回这个标签
+4. 如果没有匹配到任何候选标签，就返回 `拒识`
+
+因此当前真实兜底值是：
+
+```text
+拒识
+```
+
+不是：
+
+```text
+unknown
+```
+
+## 8. 两阶段数据流
+
+### 第一阶段：建索引
+
+输入：
+
+- `train.jsonl`
+
+处理：
+
+1. 读取每条训练样本
+2. 对 `text` 做向量化
+3. 将向量写入向量索引
+4. 将原始文本、标签等信息写入正排文件
+
+输出：
+
+- `llm_classification/data/index/<index_name>/`
+
+如果后端是 FAISS，典型文件是：
+
+- `invert_index.faiss`
+- `forward_index.txt`
+
+### 第二阶段：批量推理
+
+输入：
+
+- 待预测 `jsonl`
+
+处理：
+
+1. 读取每条 `text`
+2. 查询向量索引，召回相似锚点
+3. 拼接 prompt
+4. 调用 LLM 分类
+5. 写出 `prediction`
+
+输出：
+
+- 预测结果 `jsonl`
+
+## 9. 当前格式建议
+
+为了和当前实现最稳地对齐，建议：
+
+- 训练锚点文件至少包含 `text`、`label`
+- 推理输入文件至少包含 `text`
+- `class_def.tsv` 中为每个标签写清晰定义
+- 统一保证标签值和 `class_def.tsv` 中的标签一致
+
+## 10. 当前不支持或未实现的内容
+
+下面这些在当前代码里没有实现，不建议文档或数据流程里默认假设已经支持：
+
+- 多标签分类
+- 置信度分数输出
+- 输出保留输入 `id`
+- 输出 `prediction_name`
+- 兜底标签使用 `unknown`

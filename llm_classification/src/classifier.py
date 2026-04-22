@@ -150,6 +150,23 @@ def run_jsonl_inference(classifier, input_jsonl_path, output_jsonl_path, batch_s
 
     logger.info("jsonl inference done: {} items -> {}".format(len(results), output_jsonl_path))
 
+
+def run_single_inference(classifier, text, output_jsonl_path=""):
+    prediction = classifier.predict(text)
+    result = {"text": text, "prediction": prediction}
+
+    if output_jsonl_path:
+        output_path = Path(output_jsonl_path)
+        if output_path.parent != Path("."):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf8") as fout:
+            fout.write(json.dumps(result, ensure_ascii=False) + "\n")
+        logger.info("single inference done: {}".format(output_path))
+    else:
+        logger.info(prediction)
+
+    return result
+
 if __name__ == "__main__":
     import argparse
 
@@ -166,7 +183,7 @@ if __name__ == "__main__":
         output_path = args.output_jsonl or args.input_jsonl.replace(".jsonl", "_pred.jsonl")
         run_jsonl_inference(vlc, args.input_jsonl, output_path, batch_size=args.batch_size or None)
     elif args.text:
-        logger.info(vlc.predict(args.text))
+        run_single_inference(vlc, args.text, args.output_jsonl)
     elif len(unknown_args) > 0:
         # backward compatible with previous positional text input
-        logger.info(vlc.predict("".join(unknown_args)))
+        run_single_inference(vlc, "".join(unknown_args), args.output_jsonl)
